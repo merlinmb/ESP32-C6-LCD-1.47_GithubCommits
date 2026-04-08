@@ -1,0 +1,42 @@
+#include "config.h"
+#include <Preferences.h>
+
+static Preferences prefs;
+
+void config_apply_defaults(Config &cfg) {
+    if (cfg.brightness == 0)           cfg.brightness           = 200;
+    if (cfg.screen_switch_secs == 0)   cfg.screen_switch_secs   = 30;
+    if (cfg.refresh_interval_min == 0) cfg.refresh_interval_min = 30;
+    if (cfg.anim_top_pct == 0)         cfg.anim_top_pct         = 20;
+    if (cfg.anim_period_ms == 0)       cfg.anim_period_ms       = 2000;
+}
+
+void config_load(Config &cfg) {
+    memset(&cfg, 0, sizeof(cfg));
+    prefs.begin("ghmon", true); // read-only
+    prefs.getString("wifi_ssid",  cfg.wifi_ssid,       sizeof(cfg.wifi_ssid));
+    prefs.getString("wifi_pass",  cfg.wifi_password,   sizeof(cfg.wifi_password));
+    prefs.getString("gh_token",   cfg.github_token,    sizeof(cfg.github_token));
+    prefs.getString("gh_user",    cfg.github_username, sizeof(cfg.github_username));
+    cfg.brightness           = prefs.getUChar("brightness",   0);
+    cfg.screen_switch_secs   = prefs.getUShort("switch_sec",  0);
+    cfg.refresh_interval_min = prefs.getUShort("refresh_min", 0);
+    cfg.anim_top_pct         = prefs.getUChar("anim_pct",     0);
+    cfg.anim_period_ms       = prefs.getUShort("anim_ms",     0);
+    prefs.end();
+    config_apply_defaults(cfg);
+}
+
+void config_save(const Config &cfg) {
+    prefs.begin("ghmon", false); // read-write
+    prefs.putString("wifi_ssid",  cfg.wifi_ssid);
+    prefs.putString("wifi_pass",  cfg.wifi_password);
+    prefs.putString("gh_token",   cfg.github_token);
+    prefs.putString("gh_user",    cfg.github_username);
+    prefs.putUChar( "brightness",   cfg.brightness);
+    prefs.putUShort("switch_sec",   cfg.screen_switch_secs);
+    prefs.putUShort("refresh_min",  cfg.refresh_interval_min);
+    prefs.putUChar( "anim_pct",     cfg.anim_top_pct);
+    prefs.putUShort("anim_ms",      cfg.anim_period_ms);
+    prefs.end();
+}
