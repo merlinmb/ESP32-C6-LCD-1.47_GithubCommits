@@ -99,6 +99,19 @@ static String build_page() {
     html += s_cfg->anim_period_ms;
     html += F("'></div>");
 
+    // RGB LED card
+    html += F("<div class='card'><h2>RGB LED</h2>"
+              "<label>Min breath period ms (fastest, high streak)</label>"
+              "<input type='number' name='rgb_pmin' min='400' max='4000' value='");
+    html += s_cfg->rgb_period_min_ms;
+    html += F("'><label>Max breath period ms (slowest, no streak)</label>"
+              "<input type='number' name='rgb_pmax' min='2000' max='20000' value='");
+    html += s_cfg->rgb_period_max_ms;
+    html += F("'><label>Streak max (streak that achieves min period)</label>"
+              "<input type='number' name='rgb_smax' min='1' max='365' value='");
+    html += s_cfg->rgb_streak_max;
+    html += F("'></div>");
+
     html += F("<button type='submit'>Save &amp; Reboot</button>"
               "</form></body></html>");
 
@@ -133,6 +146,9 @@ static void handle_save() {
     if (server.hasArg("refresh_min")) s_cfg->refresh_interval_min = (uint16_t)server.arg("refresh_min").toInt();
     if (server.hasArg("anim_pct"))    s_cfg->anim_top_pct         = (uint8_t) server.arg("anim_pct").toInt();
     if (server.hasArg("anim_ms"))     s_cfg->anim_period_ms       = (uint16_t)server.arg("anim_ms").toInt();
+    if (server.hasArg("rgb_pmin")) s_cfg->rgb_period_min_ms = (uint16_t)server.arg("rgb_pmin").toInt();
+    if (server.hasArg("rgb_pmax")) s_cfg->rgb_period_max_ms = (uint16_t)server.arg("rgb_pmax").toInt();
+    if (server.hasArg("rgb_smax")) s_cfg->rgb_streak_max    = (uint8_t) server.arg("rgb_smax").toInt();
 
     config_save(*s_cfg);
 
