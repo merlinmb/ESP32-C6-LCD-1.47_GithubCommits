@@ -59,7 +59,7 @@ Best if you want to hardcode default WiFi credentials or modify the firmware.
 
 1. **Clone the repo**
    ```
-   git clone https://github.com/your-username/ESP32-C6-LCD-1.47_GithubCommits.git
+   git clone https://github.com/merlinmb/ESP32-C6-LCD-1.47_GithubCommits.git
    cd ESP32-C6-LCD-1.47_GithubCommits
    ```
 
