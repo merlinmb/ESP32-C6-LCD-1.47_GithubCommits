@@ -1,0 +1,23 @@
+build
+.vscode
+include/secrets.h
+.superpowers/
+secrets
+secrets.txt
+
+# PlatformIO — auto-generated, do not commit
+# Build artefacts and toolchain cache
+.pio/
+
+# Libraries fetched by lib_deps in platformio.ini:
+#   lvgl/lvgl @ ^9.2.2
+#   moononournation/GFX Library for Arduino @ ^1.5.9
+# (restored automatically by: pio run)
+.pio/libdeps/
+
+# Local lib/ copies — superseded by lib_deps above, do not commit
+lib/Arduino_GFX/
+
+# ESP-IDF managed components (fetched by idf_component.yml / ESP Component Registry)
+# These are pulled in automatically at build time
+managed_components/
