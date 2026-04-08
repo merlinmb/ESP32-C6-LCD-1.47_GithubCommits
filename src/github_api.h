@@ -7,11 +7,12 @@ struct ContributionDay {
 };
 
 struct GithubData {
-    ContributionDay days[53][7]; // [week][weekday 0=Sun]
-    uint8_t         week_count;  // actual weeks returned (usually 53)
+    ContributionDay days[53][7]; // normalized [week][weekday 0=Sun], current week at index 52
+    uint8_t         week_count;  // displayed weeks after normalization
     uint16_t        total_contributions;
     uint16_t        busiest_day_count;
     uint16_t        current_streak;
+    int32_t         anchor_week_start_days; // days since Unix epoch for the current week's Sunday
     bool            valid;       // false until first successful fetch
 };
 

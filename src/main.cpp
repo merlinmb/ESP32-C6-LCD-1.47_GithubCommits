@@ -12,12 +12,14 @@
 #include "display_stats.h"
 #include "web_server.h"
 #include "rgb_led.h"
+#include "ui_fonts.h"
 
 static Config     g_cfg;
 static GithubData g_data;
 static lv_obj_t  *g_screen_grid  = nullptr;
 static lv_obj_t  *g_screen_stats = nullptr;
 static bool       g_show_grid    = true;
+static bool       g_display_ready = false;
 static uint32_t   g_last_fetch_ms = 0;
 static lv_display_t *disp = nullptr;
 
@@ -41,7 +43,11 @@ static void my_log_print(lv_log_level_t level, const char *buf) {
 // ── Display brightness ────────────────────────────────────────────────────────
 
 static void apply_brightness(uint8_t val) {
-    ledcAttachChannel(GFX_BL, 1000, 8, 1);
+    static bool backlight_channel_attached = false;
+    if (!backlight_channel_attached) {
+        ledcAttachChannel(GFX_BL, 1000, 8, 1);
+        backlight_channel_attached = true;
+    }
     ledcWrite(GFX_BL, val);
 }
 
@@ -50,6 +56,7 @@ static void apply_brightness(uint8_t val) {
 static void screen_switch_cb(lv_timer_t *) {
     g_show_grid = !g_show_grid;
     lv_obj_t *next = g_show_grid ? g_screen_grid : g_screen_stats;
+    if (!next) return;
     lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_FADE_ON, 300, 0, false);
 }
 
@@ -61,19 +68,24 @@ static void do_fetch() {
     bool ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_data);
     if (ok) {
         g_last_fetch_ms = millis();
-        display_grid_update(g_data, g_cfg);
-        display_stats_update(g_data);
-        display_stats_set_age(0);
+        if (g_display_ready) {
+            display_grid_update(g_data, g_cfg);
+            display_stats_update(g_data);
+            display_stats_set_age(0);
+        }
         rgb_led_update_params(g_data, g_cfg);
     } else {
         Serial.println("[Main] Fetch failed");
+        rgb_led_update_params(g_data, g_cfg);
     }
 }
 
 static void refresh_timer_cb(lv_timer_t *) {
     // Update age label before fetch
-    uint32_t age_ms = millis() - g_last_fetch_ms;
-    display_stats_set_age(age_ms / 60000UL);
+    if (g_last_fetch_ms != 0) {
+        uint32_t age_ms = millis() - g_last_fetch_ms;
+        display_stats_set_age(age_ms / 60000UL);
+    }
     do_fetch();
 }
 
@@ -86,7 +98,7 @@ static void wifi_connect_splash() {
     lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -20);
 
     lv_obj_t *lbl = lv_label_create(lv_scr_act());
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(lbl, ui_font_label(), 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x39d353), 0);
     lv_obj_set_width(lbl, 280);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
@@ -114,7 +126,7 @@ static void wifi_connect_splash() {
 
 static void ap_mode_splash() {
     lv_obj_t *lbl = lv_label_create(lv_scr_act());
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(lbl, ui_font_label(), 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xd29922), 0);
     lv_obj_set_width(lbl, 300);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
@@ -163,6 +175,7 @@ void setup() {
     apply_brightness(200); // initial brightness before config loads
 
     lvgl_init();
+    ui_fonts_init();
 
     config_load(g_cfg);
     apply_brightness(g_cfg.brightness);
@@ -170,7 +183,8 @@ void setup() {
 
     if (g_cfg.wifi_ssid[0] == '\0') {
         // No WiFi creds in NVS — start AP setup mode
-        WiFi.softAP("GithubMonitor-Setup");
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP("GithubMonitor-Setup", nullptr, 6, false, 4);
         Serial.println("[WiFi] AP mode: GithubMonitor-Setup @ 192.168.4.1");
         ap_mode_splash();
         web_server_start(g_cfg);
@@ -185,18 +199,15 @@ void setup() {
     wifi_connect_splash();
     web_server_start(g_cfg);
 
-    do_fetch();
-
     g_screen_grid  = display_grid_build(g_cfg.github_username);
     g_screen_stats = display_stats_build(g_cfg.github_username);
+    g_display_ready = (g_screen_grid != nullptr && g_screen_stats != nullptr);
 
-    if (g_data.valid) {
-        display_grid_update(g_data, g_cfg);
-        display_stats_update(g_data);
-        display_stats_set_age(0);
+    lv_scr_load(g_screen_grid ? g_screen_grid : lv_scr_act());
+
+    if (g_display_ready) {
+        do_fetch();
     }
-
-    lv_scr_load(g_screen_grid);
 
     lv_timer_create(screen_switch_cb,
                     (uint32_t)g_cfg.screen_switch_secs * 1000UL, nullptr);

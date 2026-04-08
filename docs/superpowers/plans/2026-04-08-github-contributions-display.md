@@ -619,7 +619,7 @@ lv_obj_t *display_stats_build(const char *username) {
     // Three stat cards in a row, centred
     struct { lv_obj_t **val_ptr; const char *label; lv_color_t color; } cards[3] = {
         { &s_streak_val,  "day streak",    lv_color_hex(0x39d353) },
-        { &s_total_val,   "contributions", lv_color_hex(0x58a6ff) },
+        { &s_total_val,   "contribs",      lv_color_hex(0x58a6ff) },
         { &s_busiest_val, "busiest day",   lv_color_hex(0xd29922) },
     };
 
