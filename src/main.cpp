@@ -11,6 +11,7 @@
 #include "display_grid.h"
 #include "display_stats.h"
 #include "web_server.h"
+#include "rgb_led.h"
 
 static Config     g_cfg;
 static GithubData g_data;
@@ -63,6 +64,7 @@ static void do_fetch() {
         display_grid_update(g_data, g_cfg);
         display_stats_update(g_data);
         display_stats_set_age(0);
+        rgb_led_update_params(g_data, g_cfg);
     } else {
         Serial.println("[Main] Fetch failed");
     }
@@ -164,6 +166,7 @@ void setup() {
 
     config_load(g_cfg);
     apply_brightness(g_cfg.brightness);
+    rgb_led_init(g_cfg);
 
     if (g_cfg.wifi_ssid[0] == '\0') {
         // No WiFi creds in NVS — start AP setup mode
@@ -207,6 +210,7 @@ void setup() {
 
 void loop() {
     lv_timer_handler();
+    rgb_led_tick();
     web_server_handle();
     delay(5);
 }
