@@ -9,6 +9,9 @@ void config_apply_defaults(Config &cfg) {
     if (cfg.refresh_interval_min == 0) cfg.refresh_interval_min = 30;
     if (cfg.anim_top_pct == 0)         cfg.anim_top_pct         = 20;
     if (cfg.anim_period_ms == 0)       cfg.anim_period_ms       = 2000;
+    if (cfg.rgb_period_min_ms == 0) cfg.rgb_period_min_ms = 1200;
+    if (cfg.rgb_period_max_ms == 0) cfg.rgb_period_max_ms = 8000;
+    if (cfg.rgb_streak_max    == 0) cfg.rgb_streak_max    = 30;
 }
 
 void config_load(Config &cfg) {
@@ -23,6 +26,9 @@ void config_load(Config &cfg) {
     cfg.refresh_interval_min = prefs.getUShort("refresh_min", 0);
     cfg.anim_top_pct         = prefs.getUChar("anim_pct",     0);
     cfg.anim_period_ms       = prefs.getUShort("anim_ms",     0);
+    cfg.rgb_period_min_ms = prefs.getUShort("rgb_pmin", 0);
+    cfg.rgb_period_max_ms = prefs.getUShort("rgb_pmax", 0);
+    cfg.rgb_streak_max    = prefs.getUChar( "rgb_smax", 0);
     prefs.end();
     config_apply_defaults(cfg);
 }
@@ -38,5 +44,8 @@ void config_save(const Config &cfg) {
     prefs.putUShort("refresh_min",  cfg.refresh_interval_min);
     prefs.putUChar( "anim_pct",     cfg.anim_top_pct);
     prefs.putUShort("anim_ms",      cfg.anim_period_ms);
+    prefs.putUShort("rgb_pmin", cfg.rgb_period_min_ms);
+    prefs.putUShort("rgb_pmax", cfg.rgb_period_max_ms);
+    prefs.putUChar( "rgb_smax", cfg.rgb_streak_max);
     prefs.end();
 }
