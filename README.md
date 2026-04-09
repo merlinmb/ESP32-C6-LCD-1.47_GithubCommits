@@ -13,7 +13,8 @@ A PlatformIO/Arduino firmware that displays your GitHub contribution graph and s
 - **Contribution grid** — full 53-week GitHub contribution heatmap rendered with GitHub's green colour scale
 - **Stats screen** — total contributions, current streak, busiest day, last-updated age
 - **Auto-rotate** — alternates between grid and stats views on a configurable interval
-- **Web config portal** — change WiFi, GitHub token, username, brightness, and timing via any browser
+- **Web config portal** — change WiFi, GitHub token, username, brightness, orientation, and timing via any browser; brightness and flip take effect immediately on Save without rebooting
+- **Flip screen** — 180° rotation toggle saved to NVS and applied live from the web portal
 - **AP setup mode** — on first boot (no credentials stored), device acts as a WiFi access point so you can configure it without editing code
 - **NVS persistence** — all settings survive power cycles via ESP32 non-volatile storage
 
@@ -129,13 +130,23 @@ Accessible at `http://<device-ip>` any time the device is on your network. In AP
 | WiFi Password | `wifi_pass` | — | Your network password |
 | GitHub Username | `gh_user` | — | GitHub username to monitor |
 | GitHub Token | `gh_token` | — | PAT with `public_repo` or `repo` scope |
-| Brightness | `brightness` | 200 (of 255) | LCD backlight level |
+| Brightness | `brightness` | 100% | LCD backlight level (0–100). Applied immediately on Save |
 | Screen switch interval | `switch_sec` | 30 s | How often to alternate between grid and stats |
 | Refresh interval | `refresh_min` | 30 min | How often to re-fetch from GitHub API |
+| Flip screen 180° | `flip_scr` | off | Rotate display 180°. Applied immediately on Save |
 | Animation top % | `anim_pct` | 20% | Top percentage of contribution cells to animate |
 | Animation period | `anim_ms` | 2000 ms | Breathing animation cycle duration |
+| LED Brightness | `rgb_bright` | 100% | NeoPixel LED brightness (0–100). Applied immediately on Save |
+| Min breath period | `rgb_pmin` | 1200 ms | Fastest RGB breathing speed (at max streak) |
+| Max breath period | `rgb_pmax` | 8000 ms | Slowest RGB breathing speed (at streak 0) |
+| Streak max | `rgb_smax` | 30 | Streak length that achieves the minimum breath period |
+| MQTT broker | `mqtt_host` | — | Hostname/IP of MQTT broker (leave empty to disable) |
+| MQTT port | `mqtt_port` | 1883 | MQTT broker port |
+| Combined brightness topic | `mqtt_ctopic` | `cmnd/…/brightnesspercentage` | Sets both LCD and LED brightness (0–100) |
+| LCD brightness topic | `mqtt_lcd` | `cmnd/…/lcdbrightness` | LCD-only brightness (0–100) |
+| LED brightness topic | `mqtt_ltopic` | `cmnd/…/ledbrightness` | LED-only brightness (0–100) |
 
-Clicking **Save** writes all values to NVS and reboots the device.
+Clicking **Save** writes all values to NVS and immediately applies brightness, flip, and LED settings. WiFi and GitHub credential changes require a reboot.
 
 ---
 

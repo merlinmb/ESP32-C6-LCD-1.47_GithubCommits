@@ -178,7 +178,7 @@ void setup() {
     delay(2000);
 
     if (!gfx->begin()) { Serial.println("GFX init failed!"); while (true); }
-    gfx->setRotation(1); // landscape: 320x172
+    gfx->setRotation(1); // landscape: 320x172 (pre-config default)
     gfx->fillScreen(RGB565_BLACK);
     set_screen_brightness_pct(100); // full brightness during splash
 
@@ -186,6 +186,7 @@ void setup() {
     ui_fonts_init();
 
     config_load(g_cfg);
+    gfx->setRotation(g_cfg.flip_screen ? 3 : 1); // apply saved orientation
     set_screen_brightness_pct(g_cfg.brightness);
     rgb_led_init(g_cfg);
 
@@ -196,6 +197,7 @@ void setup() {
         Serial.println("[WiFi] AP mode: GithubMonitor-Setup @ 192.168.4.1");
         ap_mode_splash();
         web_server_start(g_cfg, [](const Config &cfg) {
+            gfx->setRotation(cfg.flip_screen ? 3 : 1);
             set_screen_brightness_pct(cfg.brightness);
             rgb_led_set_brightness_pct(cfg.rgb_brightness);
         });
@@ -209,6 +211,7 @@ void setup() {
 
     wifi_connect_splash();
     web_server_start(g_cfg, [](const Config &cfg) {
+        gfx->setRotation(cfg.flip_screen ? 3 : 1);
         set_screen_brightness_pct(cfg.brightness);
         rgb_led_set_brightness_pct(cfg.rgb_brightness);
         rgb_led_update_params(g_data, cfg);

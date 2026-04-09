@@ -22,6 +22,8 @@ struct Config {
     char     mqtt_led_brightness_topic[128]; // LED brightness only (0-100)
     // RGB LED brightness
     uint8_t  rgb_brightness;                 // 0-100 percent (default 100)
+    // Display orientation
+    uint8_t  flip_screen;                    // 0 = normal, 1 = 180° flipped
 };
 
 void config_load(Config &cfg);

@@ -47,6 +47,7 @@ void config_load(Config &cfg) {
     prefs.getString("mqtt_lcd",      cfg.mqtt_lcd_topic,           sizeof(cfg.mqtt_lcd_topic));
     prefs.getString("mqtt_ltopic",   cfg.mqtt_led_brightness_topic,sizeof(cfg.mqtt_led_brightness_topic));
     cfg.rgb_brightness  = prefs.getUChar("rgb_bright", 0);
+    cfg.flip_screen     = prefs.getUChar("flip_scr",   0);
     prefs.end();
     config_apply_defaults(cfg);
 }
@@ -77,5 +78,6 @@ void config_save(const Config &cfg) {
     prefs.putString("mqtt_lcd",    cfg.mqtt_lcd_topic);
     prefs.putString("mqtt_ltopic", cfg.mqtt_led_brightness_topic);
     prefs.putUChar( "rgb_bright",  cfg.rgb_brightness);
+    prefs.putUChar( "flip_scr",    cfg.flip_screen);
     prefs.end();
 }

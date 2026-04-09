@@ -94,7 +94,12 @@ static String build_page() {
     html += F("'><label>Data refresh interval (minutes)</label>"
               "<input type='number' name='refresh_min' min='1' max='1440' value='");
     html += s_cfg->refresh_interval_min;
-    html += F("'></div>");
+    html += F("'>"
+              "<label style='display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer'>"
+              "<input type='checkbox' name='flip_screen' value='1'");
+    if (s_cfg->flip_screen) html += F(" checked");
+    html += F("> Flip screen 180&deg;</label>"
+              "</div>");
 
     // Animation card
     html += F("<div class='card'><h2>Animation</h2>"
@@ -220,6 +225,7 @@ static void handle_save() {
     if (server.hasArg("rgb_pmax")) s_cfg->rgb_period_max_ms = (uint16_t)server.arg("rgb_pmax").toInt();
     if (server.hasArg("rgb_smax")) s_cfg->rgb_streak_max    = (uint8_t) server.arg("rgb_smax").toInt();
     if (server.hasArg("rgb_bright")) s_cfg->rgb_brightness  = (uint8_t) server.arg("rgb_bright").toInt();
+    s_cfg->flip_screen = server.hasArg("flip_screen") ? 1 : 0;
     get_str("mqtt_host",    s_cfg->mqtt_broker,              sizeof(s_cfg->mqtt_broker));
     if (server.hasArg("mqtt_port")) s_cfg->mqtt_port        = (uint16_t)server.arg("mqtt_port").toInt();
     get_str("mqtt_ctopic", s_cfg->mqtt_combined_topic,      sizeof(s_cfg->mqtt_combined_topic));
