@@ -13,6 +13,8 @@
 #include "web_server.h"
 #include "rgb_led.h"
 #include "ui_fonts.h"
+#include "screen_brightness.h"
+#include "mqtt_client.h"
 
 static Config     g_cfg;
 static GithubData g_data;
@@ -49,6 +51,12 @@ static void apply_brightness(uint8_t val) {
         backlight_channel_attached = true;
     }
     ledcWrite(GFX_BL, val);
+}
+
+// Public API: set brightness by percentage (0-100). Maps to 0-255 for LEDC.
+void set_screen_brightness_pct(uint8_t pct) {
+    if (pct > 100) pct = 100;
+    apply_brightness((uint8_t)((pct * 255UL) / 100UL));
 }
 
 // ── Screen switch timer ───────────────────────────────────────────────────────
@@ -172,13 +180,13 @@ void setup() {
     if (!gfx->begin()) { Serial.println("GFX init failed!"); while (true); }
     gfx->setRotation(1); // landscape: 320x172
     gfx->fillScreen(RGB565_BLACK);
-    apply_brightness(200); // initial brightness before config loads
+    set_screen_brightness_pct(100); // full brightness during splash
 
     lvgl_init();
     ui_fonts_init();
 
     config_load(g_cfg);
-    apply_brightness(g_cfg.brightness);
+    set_screen_brightness_pct(g_cfg.brightness);
     rgb_led_init(g_cfg);
 
     if (g_cfg.wifi_ssid[0] == '\0') {
@@ -187,7 +195,10 @@ void setup() {
         WiFi.softAP("GithubMonitor-Setup", nullptr, 6, false, 4);
         Serial.println("[WiFi] AP mode: GithubMonitor-Setup @ 192.168.4.1");
         ap_mode_splash();
-        web_server_start(g_cfg);
+        web_server_start(g_cfg, [](const Config &cfg) {
+            set_screen_brightness_pct(cfg.brightness);
+            rgb_led_set_brightness_pct(cfg.rgb_brightness);
+        });
         // Stay in AP loop — web server POST /save will reboot device
         while (true) {
             web_server_handle();
@@ -197,7 +208,13 @@ void setup() {
     }
 
     wifi_connect_splash();
-    web_server_start(g_cfg);
+    web_server_start(g_cfg, [](const Config &cfg) {
+        set_screen_brightness_pct(cfg.brightness);
+        rgb_led_set_brightness_pct(cfg.rgb_brightness);
+        rgb_led_update_params(g_data, cfg);
+        mqtt_client_reinit();
+    });
+    mqtt_client_init(g_cfg);
 
     g_screen_grid  = display_grid_build(g_cfg.github_username);
     g_screen_stats = display_stats_build(g_cfg.github_username);
@@ -223,5 +240,6 @@ void loop() {
     lv_timer_handler();
     rgb_led_tick();
     web_server_handle();
+    mqtt_client_tick();
     delay(5);
 }

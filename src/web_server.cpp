@@ -4,7 +4,8 @@
 #include <Arduino.h>
 
 static WebServer server(80);
-static Config   *s_cfg = nullptr;
+static Config        *s_cfg      = nullptr;
+static ConfigApplyFn  s_apply_fn = nullptr;
 
 // Build config page HTML string with current values pre-filled
 static String build_page() {
@@ -36,15 +37,26 @@ static String build_page() {
               ".range-row{display:flex;align-items:center;gap:10px;margin-top:4px}"
               ".range-row input{flex:1}"
               ".range-val{color:#39d353;font-size:13px;min-width:40px;text-align:right}"
-              "button{background:#238636;color:#fff;border:none;border-radius:6px;"
-              "padding:11px 24px;font-size:15px;cursor:pointer;width:100%;margin-top:16px}"
-              "button:hover{background:#2ea043}"
+              ".btn-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px}"
+              ".btn-save,.btn-reboot,.btn-reset{border:none;border-radius:6px;padding:11px 6px;"
+              "font-size:13px;font-weight:600;cursor:pointer;width:100%}"
+              ".btn-save{background:#238636;color:#fff}"
+              ".btn-save:hover{background:#2ea043}"
+              ".btn-reboot{background:#1f6feb;color:#fff}"
+              ".btn-reboot:hover{background:#388bfd}"
+              ".btn-reset{background:#6e211a;color:#fff}"
+              ".btn-reset:hover{background:#b91c1c}"
+              "#toast{position:fixed;bottom:20px;left:50%;"
+              "transform:translateX(-50%) translateY(20px);"
+              "background:#1a7f37;color:#fff;padding:10px 20px;border-radius:8px;"
+              "font-size:14px;opacity:0;transition:opacity .3s,transform .3s;"
+              "pointer-events:none;z-index:999}"
               "</style></head><body>"
               "<h1>GitHub Monitor</h1>"
               "<div class='sub'>Device IP: ");
     html += ip;
     if (ap_mode) html += F(" <span class='warn'>&#9888; Setup mode — connect to GithubMonitor-Setup then visit 192.168.4.1</span>");
-    html += F("</div><form method='POST' action='/save'>");
+    html += F("</div><form id='cfg'>");
 
     // WiFi card
     html += F("<div class='card'><h2>WiFi</h2>"
@@ -68,14 +80,14 @@ static String build_page() {
 
     // Display card
     html += F("<div class='card'><h2>Display</h2>"
-              "<label>Brightness (0&#8211;255)</label>"
+              "<label>LCD Brightness (%)</label>"
               "<div class='range-row'>"
-              "<input type='range' name='brightness' min='0' max='255' value='");
+              "<input type='range' name='brightness' min='1' max='100' value='");
     html += s_cfg->brightness;
-    html += F("' oninput='this.nextElementSibling.textContent=this.value'>"
+    html += F("' oninput='this.nextElementSibling.textContent=this.value+\"%\"'>"
               "<span class='range-val'>");
     html += s_cfg->brightness;
-    html += F("</span></div>"
+    html += F("%</span></div>"
               "<label>Screen switch interval (seconds)</label>"
               "<input type='number' name='switch_sec' min='5' max='3600' value='");
     html += s_cfg->screen_switch_secs;
@@ -101,6 +113,14 @@ static String build_page() {
 
     // RGB LED card
     html += F("<div class='card'><h2>RGB LED</h2>"
+              "<label>LED Brightness (%)</label>"
+              "<div class='range-row'>"
+              "<input type='range' name='rgb_bright' min='1' max='100' value='");
+    html += s_cfg->rgb_brightness;
+    html += F("' oninput='this.nextElementSibling.textContent=this.value+\"%\"'>"
+              "<span class='range-val'>");
+    html += s_cfg->rgb_brightness;
+    html += F("%</span></div>"
               "<label>Min breath period ms (fastest, high streak)</label>"
               "<input type='number' name='rgb_pmin' min='400' max='4000' value='");
     html += s_cfg->rgb_period_min_ms;
@@ -112,8 +132,58 @@ static String build_page() {
     html += s_cfg->rgb_streak_max;
     html += F("'></div>");
 
-    html += F("<button type='submit'>Save &amp; Reboot</button>"
-              "</form></body></html>");
+    // MQTT card
+    html += F("<div class='card'><h2>MQTT</h2>"
+              "<label>Broker host / IP (leave empty to disable)</label>"
+              "<input type='text' name='mqtt_host' value='");
+    html += s_cfg->mqtt_broker;
+    html += F("'><label>Broker port</label>"
+              "<input type='number' name='mqtt_port' min='1' max='65535' value='");
+    html += s_cfg->mqtt_port;
+    html += F("'><label>Combined brightness topic &#8212; sets LCD &amp; LED (0&#8211;100)</label>"
+              "<input type='text' name='mqtt_ctopic' value='");
+    html += s_cfg->mqtt_combined_topic;
+    html += F("'><label>LCD-only brightness topic (0&#8211;100)</label>"
+              "<input type='text' name='mqtt_lcd' value='");
+    html += s_cfg->mqtt_lcd_topic;
+    html += F("'><label>LED-only brightness topic (0&#8211;100)</label>"
+              "<input type='text' name='mqtt_ltopic' value='");
+    html += s_cfg->mqtt_led_brightness_topic;
+    html += F("'></div>");
+
+    html += F("<div class='btn-row'>"
+              "<button type='button' class='btn-save' id='btnSave'>Save</button>"
+              "<button type='button' class='btn-reboot' id='btnReboot'>Reboot</button>"
+              "<button type='button' class='btn-reset' id='btnReset'>Factory Reset</button>"
+              "</div>"
+              "</form>"
+              "<div id='toast'></div>"
+              "<script>"
+              "function showToast(m,ok){"
+              "var t=document.getElementById('toast');"
+              "t.textContent=m;"
+              "t.style.background=ok?'#1a7f37':'#b91c1c';"
+              "t.style.opacity='1';"
+              "t.style.transform='translateX(-50%) translateY(0)';"
+              "setTimeout(function(){t.style.opacity='0';"
+              "t.style.transform='translateX(-50%) translateY(20px)';},2800);}"
+              "document.getElementById('btnSave').onclick=function(){"
+              "var p=new URLSearchParams(new FormData(document.getElementById('cfg')));"
+              "fetch('/save',{method:'POST',"
+              "headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+              "body:p.toString()})"
+              ".then(function(r){return r.json();})"
+              ".then(function(d){showToast(d.msg,d.ok);})"
+              ".catch(function(){showToast('Save failed',false);});};"
+              "document.getElementById('btnReboot').onclick=function(){"
+              "if(!confirm('Reboot the device?'))return;"
+              "fetch('/reboot',{method:'POST'})"
+              ".then(function(){showToast('Rebooting...',true);});};"
+              "document.getElementById('btnReset').onclick=function(){"
+              "if(!confirm('This will erase ALL settings and reboot. Continue?'))return;"
+              "fetch('/reset',{method:'POST'})"
+              ".then(function(){showToast('Resetting...',true);});};"
+              "</script></body></html>");
 
     return html;
 }
@@ -149,26 +219,49 @@ static void handle_save() {
     if (server.hasArg("rgb_pmin")) s_cfg->rgb_period_min_ms = (uint16_t)server.arg("rgb_pmin").toInt();
     if (server.hasArg("rgb_pmax")) s_cfg->rgb_period_max_ms = (uint16_t)server.arg("rgb_pmax").toInt();
     if (server.hasArg("rgb_smax")) s_cfg->rgb_streak_max    = (uint8_t) server.arg("rgb_smax").toInt();
+    if (server.hasArg("rgb_bright")) s_cfg->rgb_brightness  = (uint8_t) server.arg("rgb_bright").toInt();
+    get_str("mqtt_host",    s_cfg->mqtt_broker,              sizeof(s_cfg->mqtt_broker));
+    if (server.hasArg("mqtt_port")) s_cfg->mqtt_port        = (uint16_t)server.arg("mqtt_port").toInt();
+    get_str("mqtt_ctopic", s_cfg->mqtt_combined_topic,      sizeof(s_cfg->mqtt_combined_topic));
+    get_str("mqtt_lcd",    s_cfg->mqtt_lcd_topic,           sizeof(s_cfg->mqtt_lcd_topic));
+    get_str("mqtt_ltopic", s_cfg->mqtt_led_brightness_topic,sizeof(s_cfg->mqtt_led_brightness_topic));
 
     config_save(*s_cfg);
 
-    server.send(200, "text/html",
-        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-        "<style>body{background:#0d1117;color:#39d353;font-family:sans-serif;"
-        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px}"
-        "h1{font-size:22px}p{color:#8b949e;font-size:14px}</style></head>"
-        "<body><h1>Saved &#8212; rebooting&hellip;</h1>"
-        "<p>The device will restart and connect with the new settings.</p>"
-        "</body></html>");
+    if (s_apply_fn) s_apply_fn(*s_cfg);
 
-    delay(1000);
+    server.send(200, "application/json",
+        "{\"ok\":true,\"msg\":\"Saved. WiFi & GitHub changes need a reboot.\"}");
+}
+
+static void handle_reboot() {
+    if (server.method() != HTTP_POST) {
+        server.send(405, "text/plain", "Method Not Allowed");
+        return;
+    }
+    server.send(200, "application/json", "{\"ok\":true}");
+    delay(500);
     ESP.restart();
 }
 
-void web_server_start(Config &cfg) {
-    s_cfg = &cfg;
-    server.on("/",     HTTP_GET,  handle_root);
-    server.on("/save", HTTP_POST, handle_save);
+static void handle_reset() {
+    if (server.method() != HTTP_POST) {
+        server.send(405, "text/plain", "Method Not Allowed");
+        return;
+    }
+    config_reset();
+    server.send(200, "application/json", "{\"ok\":true}");
+    delay(500);
+    ESP.restart();
+}
+
+void web_server_start(Config &cfg, ConfigApplyFn on_apply) {
+    s_cfg      = &cfg;
+    s_apply_fn = on_apply;
+    server.on("/",       HTTP_GET,  handle_root);
+    server.on("/save",   HTTP_POST, handle_save);
+    server.on("/reboot", HTTP_POST, handle_reboot);
+    server.on("/reset",  HTTP_POST, handle_reset);
     server.begin();
     Serial.printf("[Web] Server started at http://%s/\n",
                   WiFi.localIP().toString().c_str());

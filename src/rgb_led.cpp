@@ -19,11 +19,15 @@ static uint8_t s_prev_r = 255;
 static uint8_t s_prev_g = 255;
 static uint8_t s_prev_b = 255;
 
+// Current brightness scalar 0-100 (applied as multiplier in tick)
+static uint8_t s_brightness_pct = 100;
+
 void rgb_led_init(const Config &cfg) {
     s_pixel.begin();
     s_pixel.setBrightness(255);
     s_pixel.clear();
     s_pixel.show();
+    s_brightness_pct = cfg.rgb_brightness;
 }
 
 void rgb_led_update_params(const GithubData &data, const Config &cfg) {
@@ -55,10 +59,11 @@ void rgb_led_tick() {
     uint32_t t = millis();
     float phase      = (float)(t % s_period_ms) / (float)s_period_ms;
     float brightness = (sinf(phase * 2.0f * M_PI - M_PI / 2.0f) + 1.0f) / 2.0f;
+    float led_scale  = (float)s_brightness_pct / 100.0f;
 
-    uint8_t r = (uint8_t)(s_base_r * brightness);
-    uint8_t g = (uint8_t)(s_base_g * brightness);
-    uint8_t b = (uint8_t)(s_base_b * brightness);
+    uint8_t r = (uint8_t)(s_base_r * brightness * led_scale);
+    uint8_t g = (uint8_t)(s_base_g * brightness * led_scale);
+    uint8_t b = (uint8_t)(s_base_b * brightness * led_scale);
 
     // Only write when color changes by at least 1 on any channel
     if (abs((int)r - (int)s_prev_r) < 1 &&
@@ -72,4 +77,11 @@ void rgb_led_tick() {
     s_prev_b = b;
     s_pixel.setPixelColor(0, s_pixel.Color(r, g, b));
     s_pixel.show();
+}
+
+void rgb_led_set_brightness_pct(uint8_t pct) {
+    if (pct > 100) pct = 100;
+    s_brightness_pct = pct;
+    // Force a redraw on the next tick by invalidating the cache
+    s_prev_r = 255; s_prev_g = 255; s_prev_b = 255;
 }
