@@ -7,7 +7,7 @@
 #define SCREEN_W     320
 #define SCREEN_H     172
 #define CELL_W       5
-#define CELL_H       8
+#define CELL_H       10
 #define COL_GAP      1
 #define ROW_GAP      2
 #define FOOTER_H     28

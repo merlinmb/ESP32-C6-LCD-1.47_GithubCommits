@@ -71,12 +71,27 @@ static void compute_streak_and_busiest(GithubData &data) {
     data.busiest_day_count = 0;
     data.current_streak = 0;
 
-    // Scan backwards week by week, day by day for streak
-    bool in_streak = true;
-    for (int w = (int)data.week_count - 1; w >= 0; w--) {
-        for (int d = 6; d >= 0; d--) {
+    for (int w = 0; w < (int)data.week_count; w++) {
+        for (int d = 0; d < GRID_DAYS; d++) {
             uint16_t c = data.days[w][d].count;
             if (c > data.busiest_day_count) data.busiest_day_count = c;
+        }
+    }
+
+    if (data.anchor_week_start_days == 0 || data.latest_data_day_days == 0) return;
+
+    int32_t delta_days = data.latest_data_day_days - data.anchor_week_start_days;
+    if (delta_days < 0) return;
+
+    int current_week = (GRID_WEEKS - 1) - (int)(delta_days / 7);
+    int current_day = (int)(delta_days % 7);
+    if (current_week < 0 || current_week >= GRID_WEEKS) return;
+
+    bool in_streak = true;
+    for (int w = current_week; w >= 0 && in_streak; w--) {
+        int start_day = (w == current_week) ? current_day : (GRID_DAYS - 1);
+        for (int d = start_day; d >= 0; d--) {
+            uint16_t c = data.days[w][d].count;
             if (in_streak) {
                 if (c > 0) data.current_streak++;
                 else       in_streak = false;
@@ -92,6 +107,7 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     data.busiest_day_count = 0;
     data.current_streak = 0;
     data.anchor_week_start_days = 0;
+    data.latest_data_day_days = 0;
     memset(data.days, 0, sizeof(data.days));
 
     if (!username || username[0] == '\0') {
@@ -182,6 +198,7 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
 
     if (latest_day != INT32_MIN) {
         data.anchor_week_start_days = latest_day - weekday_sun0(latest_day);
+        data.latest_data_day_days = latest_day;
         data.week_count = GRID_WEEKS;
 
         for (int i = 0; i < parsed_day_count; i++) {

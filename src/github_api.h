@@ -13,6 +13,7 @@ struct GithubData {
     uint16_t        busiest_day_count;
     uint16_t        current_streak;
     int32_t         anchor_week_start_days; // days since Unix epoch for the current week's Sunday
+    int32_t         latest_data_day_days;   // latest actual contribution day returned by GitHub
     bool            valid;       // false until first successful fetch
 };
 
