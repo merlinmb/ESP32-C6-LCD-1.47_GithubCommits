@@ -7,7 +7,7 @@
 #define SCREEN_W     320
 #define SCREEN_H     172
 #define CELL_W       5
-#define CELL_H       10
+#define CELL_H       12
 #define COL_GAP      1
 #define ROW_GAP      2
 #define FOOTER_H     28
@@ -23,16 +23,16 @@
 // Colour table: level 0-4 (normal and bright/peak for animation)
 static const lv_color_t LEVEL_COLORS[5] = {
     lv_color_hex(0x161b22),
-    lv_color_hex(0x1c6b3c),
-    lv_color_hex(0x2ea043),
+    lv_color_hex(0x2b8a4f),
+    lv_color_hex(0x48c765),
     lv_color_hex(0x56d364),
     lv_color_hex(0x7ee787),
 };
 static const lv_color_t LEVEL_BRIGHT[5] = {
     lv_color_hex(0x161b22), // level 0 never animates
-    lv_color_hex(0x2b8a4f),
-    lv_color_hex(0x48c765),
-    lv_color_hex(0x76e28b),
+    lv_color_hex(0x48b86b),
+    lv_color_hex(0x6fe08a),
+    lv_color_hex(0x8ef0a4),
     lv_color_hex(0xa8ffb5),
 };
 

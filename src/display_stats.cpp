@@ -81,7 +81,12 @@ void display_stats_update(const GithubData &data) {
     if (!s_screen || !s_streak_val || !s_total_val || !s_busiest_val) return;
     lv_label_set_text_fmt(s_streak_val,  "%d", (int)data.current_streak);
     lv_label_set_text_fmt(s_total_val,   "%d", (int)data.total_contributions);
-    lv_label_set_text_fmt(s_busiest_val, "%d", (int)data.busiest_day_count);
+    if (data.busiest_day_day > 0 && data.busiest_day_month > 0)
+        lv_label_set_text_fmt(s_busiest_val, "%02u/%02u",
+                              (unsigned)data.busiest_day_day,
+                              (unsigned)data.busiest_day_month);
+    else
+        lv_label_set_text(s_busiest_val, "--/--");
 }
 
 void display_stats_set_age(uint32_t minutes_ago) {

@@ -11,6 +11,8 @@ struct GithubData {
     uint8_t         week_count;  // displayed weeks after normalization
     uint16_t        total_contributions;
     uint16_t        busiest_day_count;
+    uint8_t         busiest_day_day;
+    uint8_t         busiest_day_month;
     uint16_t        current_streak;
     int32_t         anchor_week_start_days; // days since Unix epoch for the current week's Sunday
     int32_t         latest_data_day_days;   // latest actual contribution day returned by GitHub
