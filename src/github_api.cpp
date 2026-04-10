@@ -142,9 +142,11 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
 
     WiFiClientSecure client;
     client.setInsecure(); // no cert verification - acceptable for this use case
+    client.setTimeout(12); // 12-second TCP connect + TLS handshake timeout (seconds)
 
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setTimeout(10000); // 10-second inter-byte read timeout (ms)
+    http.setConnectTimeout(12000); // 12-second connect timeout (ms)
     if (!http.begin(client, GRAPHQL_URL)) return false;
 
     http.addHeader("Content-Type", "application/json");

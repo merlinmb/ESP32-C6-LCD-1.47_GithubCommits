@@ -71,9 +71,29 @@ static void screen_switch_cb(lv_timer_t *) {
 // ── Data refresh ──────────────────────────────────────────────────────────────
 
 static void do_fetch() {
-    Serial.println("[Main] Fetching GitHub data...");
+    static const int MAX_ATTEMPTS = 3;
+    static const uint32_t RETRY_DELAY_MS = 5000;
+
     display_grid_stop_animations();
-    bool ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_data);
+
+    bool ok = false;
+    for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        Serial.printf("[Main] Fetching GitHub data (attempt %d/%d)...\n", attempt, MAX_ATTEMPTS);
+        ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_data);
+        if (ok) break;
+
+        if (attempt < MAX_ATTEMPTS) {
+            Serial.printf("[Main] Fetch failed, retrying in %u ms...\n", RETRY_DELAY_MS);
+            uint32_t wait_until = millis() + RETRY_DELAY_MS;
+            while ((int32_t)(wait_until - millis()) > 0) {
+                lv_timer_handler();
+                mqtt_client_tick();
+                web_server_handle();
+                delay(5);
+            }
+        }
+    }
+
     if (ok) {
         g_last_fetch_ms = millis();
         if (g_display_ready) {
@@ -81,11 +101,10 @@ static void do_fetch() {
             display_stats_update(g_data);
             display_stats_set_age(0);
         }
-        rgb_led_update_params(g_data, g_cfg);
     } else {
-        Serial.println("[Main] Fetch failed");
-        rgb_led_update_params(g_data, g_cfg);
+        Serial.println("[Main] Fetch failed after all attempts");
     }
+    rgb_led_update_params(g_data, g_cfg);
 }
 
 static void refresh_timer_cb(lv_timer_t *) {
