@@ -68,47 +68,87 @@ static void screen_switch_cb(lv_timer_t *) {
     lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_FADE_ON, 300, 0, false);
 }
 
-// ── Data refresh ──────────────────────────────────────────────────────────────
+// ── Async data refresh via FreeRTOS task ──────────────────────────────────────
 
-static void do_fetch() {
-    static const int MAX_ATTEMPTS = 3;
-    static const uint32_t RETRY_DELAY_MS = 5000;
+static const uint32_t FETCH_TIMEOUT_MS  = 30000; // hard kill if task hangs
+static const int      FETCH_MAX_RETRIES = 3;
+static const uint32_t FETCH_RETRY_MS    = 5000;
 
-    display_grid_stop_animations();
+// State shared between main loop and fetch task — written only by the task,
+// read only by the main loop (after task exits), so no mutex needed.
+enum FetchState { FETCH_IDLE, FETCH_RUNNING, FETCH_DONE_OK, FETCH_DONE_FAIL };
+static volatile FetchState g_fetch_state = FETCH_IDLE;
+static GithubData          g_fetch_result; // scratch buffer written by task
+static TaskHandle_t        g_fetch_task   = nullptr;
 
+static void fetch_task(void *) {
     bool ok = false;
-    for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        Serial.printf("[Main] Fetching GitHub data (attempt %d/%d)...\n", attempt, MAX_ATTEMPTS);
-        ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_data);
+    for (int attempt = 1; attempt <= FETCH_MAX_RETRIES; attempt++) {
+        Serial.printf("[Fetch] Attempt %d/%d\n", attempt, FETCH_MAX_RETRIES);
+        ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_fetch_result);
         if (ok) break;
-
-        if (attempt < MAX_ATTEMPTS) {
-            Serial.printf("[Main] Fetch failed, retrying in %u ms...\n", RETRY_DELAY_MS);
-            uint32_t wait_until = millis() + RETRY_DELAY_MS;
-            while ((int32_t)(wait_until - millis()) > 0) {
-                lv_timer_handler();
-                mqtt_client_tick();
-                web_server_handle();
-                delay(5);
-            }
+        if (attempt < FETCH_MAX_RETRIES) {
+            Serial.printf("[Fetch] Failed, retrying in %u ms...\n", FETCH_RETRY_MS);
+            vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_MS));
         }
     }
+    g_fetch_state = ok ? FETCH_DONE_OK : FETCH_DONE_FAIL;
+    g_fetch_task  = nullptr;
+    vTaskDelete(nullptr);
+}
 
+// Called from main loop — applies a completed fetch result to the display.
+static void apply_fetch_result(bool ok) {
     if (ok) {
         g_last_fetch_ms = millis();
+        g_data = g_fetch_result;
         if (g_display_ready) {
             display_grid_update(g_data, g_cfg);
             display_stats_update(g_data);
             display_stats_set_age(0);
         }
     } else {
-        Serial.println("[Main] Fetch failed after all attempts");
+        Serial.println("[Fetch] All attempts failed");
     }
     rgb_led_update_params(g_data, g_cfg);
 }
 
+// Kick off an async fetch. If one is already running, do nothing.
+static void do_fetch() {
+    if (g_fetch_state == FETCH_RUNNING) return;
+    display_grid_stop_animations();
+    g_fetch_state = FETCH_RUNNING;
+    memset(&g_fetch_result, 0, sizeof(g_fetch_result));
+    xTaskCreate(fetch_task, "gh_fetch", 8192, nullptr, 1, &g_fetch_task);
+}
+
+// Called every loop iteration — checks if the fetch task finished or timed out.
+static uint32_t g_fetch_started_ms = 0;
+static void fetch_tick() {
+    if (g_fetch_state == FETCH_IDLE) return;
+
+    if (g_fetch_state == FETCH_RUNNING) {
+        // Record when we started (first tick after RUNNING is set)
+        if (g_fetch_started_ms == 0) g_fetch_started_ms = millis();
+
+        // Hard timeout: kill the task if it's been stuck too long
+        if (millis() - g_fetch_started_ms >= FETCH_TIMEOUT_MS) {
+            Serial.println("[Fetch] Timeout — killing stuck task");
+            if (g_fetch_task) { vTaskDelete(g_fetch_task); g_fetch_task = nullptr; }
+            g_fetch_state     = FETCH_DONE_FAIL;
+            g_fetch_started_ms = 0;
+        }
+        return;
+    }
+
+    // Task finished
+    g_fetch_started_ms = 0;
+    bool ok = (g_fetch_state == FETCH_DONE_OK);
+    g_fetch_state = FETCH_IDLE;
+    apply_fetch_result(ok);
+}
+
 static void refresh_timer_cb(lv_timer_t *) {
-    // Update age label before fetch
     if (g_last_fetch_ms != 0) {
         uint32_t age_ms = millis() - g_last_fetch_ms;
         display_stats_set_age(age_ms / 60000UL);
@@ -259,6 +299,7 @@ void setup() {
 // ── loop ──────────────────────────────────────────────────────────────────────
 
 void loop() {
+    fetch_tick();
     lv_timer_handler();
     rgb_led_tick();
     web_server_handle();
