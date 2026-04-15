@@ -60,12 +60,21 @@ void set_screen_brightness_pct(uint8_t pct) {
 }
 
 // ── Screen switch timer ───────────────────────────────────────────────────────
+// Grid stays visible 3× longer than stats to give the contribution view priority.
 
-static void screen_switch_cb(lv_timer_t *) {
+static lv_timer_t *g_screen_switch_timer = nullptr;
+
+static void screen_switch_cb(lv_timer_t *t) {
     g_show_grid = !g_show_grid;
     lv_obj_t *next = g_show_grid ? g_screen_grid : g_screen_stats;
     if (!next) return;
     lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_FADE_ON, 300, 0, false);
+
+    // Grid gets 3× the configured interval; stats gets 1×
+    uint32_t next_ms = g_show_grid
+        ? (uint32_t)g_cfg.screen_switch_secs * 3000UL
+        : (uint32_t)g_cfg.screen_switch_secs * 1000UL;
+    lv_timer_set_period(t, next_ms);
 }
 
 // ── Async data refresh via FreeRTOS task ──────────────────────────────────────
@@ -288,8 +297,9 @@ void setup() {
         do_fetch();
     }
 
-    lv_timer_create(screen_switch_cb,
-                    (uint32_t)g_cfg.screen_switch_secs * 1000UL, nullptr);
+    // Grid is shown first, so start with 3× interval
+    g_screen_switch_timer = lv_timer_create(screen_switch_cb,
+                    (uint32_t)g_cfg.screen_switch_secs * 3000UL, nullptr);
     lv_timer_create(refresh_timer_cb,
                     (uint32_t)g_cfg.refresh_interval_min * 60UL * 1000UL, nullptr);
 

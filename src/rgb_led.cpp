@@ -31,10 +31,8 @@ void rgb_led_init(const Config &cfg) {
 }
 
 void rgb_led_update_params(const GithubData &data, const Config &cfg) {
-    uint16_t streak = data.valid ? data.current_streak : 0;
-
-    if (streak == 0) {
-        // Idle: slow white-blue pulse
+    if (!data.valid) {
+        // No data yet: slow white-blue idle
         s_period_ms = cfg.rgb_period_max_ms;
         s_base_r    = 20;
         s_base_g    = 20;
@@ -42,15 +40,38 @@ void rgb_led_update_params(const GithubData &data, const Config &cfg) {
         return;
     }
 
-    // Map streak to period via linear interpolation
-    float ratio = (float)streak / (float)cfg.rgb_streak_max;
+    // Use today's contribution count as the primary signal.
+    // Today is the last populated day in the current (rightmost) week column.
+    // We find it by walking back from weekday 6 in week 52 to find the latest
+    // non-empty slot, but the simplest proxy is: the latest_data_day_days weekday.
+    // anchor_week_start_days is the Sunday of week 52; today's weekday offset = 0-6.
+    uint8_t today_weekday = 0;
+    if (data.anchor_week_start_days > 0 && data.latest_data_day_days > 0) {
+        int32_t diff = data.latest_data_day_days - data.anchor_week_start_days;
+        if (diff >= 0 && diff < 7) today_weekday = (uint8_t)diff;
+    }
+    uint16_t today_count = data.days[52][today_weekday].count;
+
+    // Color and speed are driven by today's commits (capped at rgb_streak_max for ratio).
+    // streak_max doubles as "max interesting commits per day" for the LED.
+    float ratio = (float)today_count / (float)cfg.rgb_streak_max;
     if (ratio > 1.0f) ratio = 1.0f;
 
+    if (today_count == 0) {
+        // No commits today: slow dim white-blue idle
+        s_period_ms = cfg.rgb_period_max_ms;
+        s_base_r    = 20;
+        s_base_g    = 20;
+        s_base_b    = 40;
+        return;
+    }
+
+    // Map today's count to period (fewer commits = slower breath, more = faster)
     s_period_ms = (uint32_t)(cfg.rgb_period_max_ms -
                   ratio * (cfg.rgb_period_max_ms - cfg.rgb_period_min_ms));
 
-    // Map streak to color: (0,60,0) -> (80,255,0)
-    s_base_r = (uint8_t)(0   + ratio * 80);
+    // Map count to color: low = dim green, high = vivid bright green
+    s_base_r = (uint8_t)(ratio * 80);
     s_base_g = (uint8_t)(60  + ratio * (255 - 60));
     s_base_b = 0;
 }
