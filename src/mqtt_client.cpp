@@ -2,6 +2,7 @@
 #include "screen_brightness.h"
 #include "rgb_led.h"
 #include "config.h"
+#include "secrets.h"
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include <Arduino.h>
@@ -13,6 +14,27 @@ static bool         s_enabled = false;
 
 static const uint32_t RECONNECT_INTERVAL_MS = 5000;
 static uint32_t s_last_reconnect_ms = 0;
+
+static bool mqtt_publish_stat(const char *suffix, const String &payload) {
+    char topic[128];
+    snprintf(topic, sizeof(topic), "stat/mcmddevices/%s", suffix);
+    bool ok = s_mqtt.publish(topic, payload.c_str());
+    if (!ok) {
+        Serial.printf("[MQTT] Publish failed for topic '%s'\n", topic);
+    }
+    return ok;
+}
+
+static void mqttTransmitInitStat(String deviceName) {
+    String payload = "{\"value1\":\"" + WiFi.localIP().toString() +
+                     "\",\"value2\":\"" + WiFi.macAddress() +
+                     "\",\"value3\":\"" + deviceName + "\"}";
+    mqtt_publish_stat("init", payload);
+}
+
+static void mqttTransmitInitStat() {
+    mqttTransmitInitStat(String(DEVICE_CLIENT_NAME));
+}
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
@@ -64,6 +86,7 @@ static bool try_connect() {
     Serial.printf("[MQTT] Connected. Subscribed to '%s', '%s', '%s'\n",
                   s_cfg->mqtt_combined_topic, s_cfg->mqtt_lcd_topic,
                   s_cfg->mqtt_led_brightness_topic);
+    mqttTransmitInitStat();
     return true;
 }
 
