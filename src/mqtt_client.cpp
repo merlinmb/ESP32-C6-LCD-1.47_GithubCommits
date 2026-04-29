@@ -121,6 +121,7 @@ void mqtt_client_reinit() {
 
 void mqtt_client_tick() {
     if (!s_enabled) return;
+    if (WiFi.status() != WL_CONNECTED) return;
     if (s_mqtt.connected()) {
         s_mqtt.loop();
         return;

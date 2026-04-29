@@ -306,9 +306,36 @@ void setup() {
     Serial.println("[Main] Setup complete");
 }
 
+// ── WiFi watchdog ─────────────────────────────────────────────────────────────
+// The ESP32 WiFi driver auto-reconnects, but it can silently stall after a
+// prolonged outage. This watchdog calls WiFi.reconnect() if the link has been
+// down for more than WIFI_RECONNECT_MS, which kicks the driver without a reboot.
+
+static const uint32_t WIFI_RECONNECT_MS = 30000; // 30 s before forcing reconnect
+static uint32_t g_wifi_lost_ms = 0;
+
+static void wifi_watchdog_tick() {
+    if (WiFi.status() == WL_CONNECTED) {
+        g_wifi_lost_ms = 0;
+        return;
+    }
+    uint32_t now = millis();
+    if (g_wifi_lost_ms == 0) {
+        g_wifi_lost_ms = now;
+        Serial.println("[WiFi] Lost connection");
+        return;
+    }
+    if (now - g_wifi_lost_ms >= WIFI_RECONNECT_MS) {
+        Serial.println("[WiFi] Reconnecting...");
+        WiFi.reconnect();
+        g_wifi_lost_ms = now; // reset timer so we don't spam reconnect
+    }
+}
+
 // ── loop ──────────────────────────────────────────────────────────────────────
 
 void loop() {
+    wifi_watchdog_tick();
     fetch_tick();
     lv_timer_handler();
     rgb_led_tick();
