@@ -72,6 +72,41 @@ static uint8_t weekday_sun0(int32_t days_since_epoch) {
     return (uint8_t)weekday;
 }
 
+static uint8_t parse_month_abbr(const String &month_text) {
+    if (month_text == "Jan") return 1;
+    if (month_text == "Feb") return 2;
+    if (month_text == "Mar") return 3;
+    if (month_text == "Apr") return 4;
+    if (month_text == "May") return 5;
+    if (month_text == "Jun") return 6;
+    if (month_text == "Jul") return 7;
+    if (month_text == "Aug") return 8;
+    if (month_text == "Sep") return 9;
+    if (month_text == "Oct") return 10;
+    if (month_text == "Nov") return 11;
+    if (month_text == "Dec") return 12;
+    return 0;
+}
+
+static bool parse_http_date_days(const String &http_date, int32_t &days_since_epoch) {
+    if (http_date.length() < 29) return false;
+
+    int comma = http_date.indexOf(',');
+    if (comma < 0) return false;
+
+    String day_text = http_date.substring(comma + 2, comma + 4);
+    String month_text = http_date.substring(comma + 5, comma + 8);
+    String year_text = http_date.substring(comma + 9, comma + 13);
+
+    int day = day_text.toInt();
+    int year = year_text.toInt();
+    uint8_t month = parse_month_abbr(month_text);
+    if (year <= 0 || month == 0 || day < 1 || day > 31) return false;
+
+    days_since_epoch = days_from_civil(year, month, (unsigned)day);
+    return true;
+}
+
 static void compute_streak_and_busiest(GithubData &data) {
     data.busiest_day_count = 0;
     data.busiest_day_day = 0;
@@ -130,6 +165,9 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     http.setConnectTimeout(12000); // 12-second connect timeout (ms)
     if (!http.begin(client, GRAPHQL_URL)) return false;
 
+    const char *header_keys[] = {"Date"};
+    http.collectHeaders(header_keys, 1);
+
     http.addHeader("Content-Type", "application/json");
     String auth = String("Bearer ") + token;
     http.addHeader("Authorization", auth);
@@ -153,6 +191,7 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     }
 
     String body = http.getString();
+    String server_date_header = http.header("Date");
     http.end();
 
     if (body.length() > 131072) {
@@ -169,7 +208,10 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     static ParsedContributionDay parsed_days[GRID_WEEKS * GRID_DAYS];
     int parsed_day_count = 0;
     int parsed_week_count = 0;
+    int32_t server_day = INT32_MAX;
+    if (!parse_http_date_days(server_date_header, server_day)) server_day = INT32_MAX;
     int32_t latest_day = INT32_MIN;
+    int32_t latest_day_any = INT32_MIN;
 
     int pos = 0;
     while (parsed_week_count < GRID_WEEKS && parsed_day_count < GRID_WEEKS * GRID_DAYS) {
@@ -189,7 +231,11 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
             uint8_t day = 0;
             uint8_t month = 0;
             bool has_date = parse_date_field(day_obj, "date", 0, days_since_epoch, month, day);
-            if (has_date && days_since_epoch > latest_day) latest_day = days_since_epoch;
+            if (has_date) {
+                if (days_since_epoch > latest_day_any) latest_day_any = days_since_epoch;
+                if (days_since_epoch <= server_day && days_since_epoch > latest_day)
+                    latest_day = days_since_epoch;
+            }
 
             parsed_days[parsed_day_count].days_since_epoch = days_since_epoch;
             parsed_days[parsed_day_count].count = count;
@@ -202,6 +248,8 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
         }
         parsed_week_count++;
     }
+
+    if (latest_day == INT32_MIN) latest_day = latest_day_any;
 
     if (parsed_week_count == 0) {
         Serial.println("[GitHub] Parse failed - no weeks found");

@@ -25,6 +25,12 @@ static bool       g_display_ready = false;
 static uint32_t   g_last_fetch_ms = 0;
 static lv_display_t *disp = nullptr;
 
+static void style_active_screen_black() {
+    lv_obj_t *screen = lv_scr_act();
+    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+}
+
 // ── LVGL callbacks ────────────────────────────────────────────────────────────
 
 static uint32_t millis_cb() { return millis(); }
@@ -172,9 +178,13 @@ static void refresh_timer_cb(lv_timer_t *) {
 // ── WiFi connection splash ────────────────────────────────────────────────────
 
 static void wifi_connect_splash() {
+    style_active_screen_black();
+
     lv_obj_t *spinner = lv_spinner_create(lv_scr_act());
     lv_spinner_set_anim_params(spinner, 8000, 200);
     lv_obj_set_size(spinner, 80, 80);
+    lv_obj_set_style_arc_color(spinner, lv_color_hex(0x30363d), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner, lv_color_hex(0x39d353), LV_PART_INDICATOR);
     lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -20);
 
     lv_obj_t *lbl = lv_label_create(lv_scr_act());
@@ -211,6 +221,8 @@ static void wifi_connect_splash() {
 // ── AP mode splash (first boot, no creds in NVS) ─────────────────────────────
 
 static void ap_mode_splash() {
+    style_active_screen_black();
+
     lv_obj_t *lbl = lv_label_create(lv_scr_act());
     lv_obj_set_style_text_font(lbl, ui_font_label(), 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xd29922), 0);
@@ -246,6 +258,7 @@ static void lvgl_init() {
     disp = lv_display_create(w, h);
     lv_display_set_flush_cb(disp, my_disp_flush);
     lv_display_set_buffers(disp, buf, NULL, buf_size * 2, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    style_active_screen_black();
 }
 
 // ── setup ─────────────────────────────────────────────────────────────────────

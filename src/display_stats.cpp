@@ -11,7 +11,7 @@ static lv_obj_t *s_age_label   = nullptr;
 
 lv_obj_t *display_stats_build(const char *username) {
     s_screen = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x0d1117), 0);
+    lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 

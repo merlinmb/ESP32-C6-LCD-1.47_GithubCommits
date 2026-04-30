@@ -101,7 +101,7 @@ lv_obj_t *display_grid_build(const char *username) {
     memset(s_month_labels, 0, sizeof(s_month_labels));
 
     s_screen = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x0d1117), 0);
+    lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -142,7 +142,7 @@ lv_obj_t *display_grid_build(const char *username) {
     lv_obj_t *footer = lv_obj_create(s_screen);
     lv_obj_set_size(footer, SCREEN_W, FOOTER_H);
     lv_obj_set_pos(footer, 0, SCREEN_H - FOOTER_H);
-    lv_obj_set_style_bg_color(footer, lv_color_hex(0x0d1117), 0);
+    lv_obj_set_style_bg_color(footer, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(footer, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(footer, 0, 0);
     lv_obj_set_style_pad_all(footer, 0, 0);
