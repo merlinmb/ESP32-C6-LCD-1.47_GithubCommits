@@ -101,6 +101,7 @@ static void fetch_task(void *) {
             vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_MS));
         }
     }
+    __asm__ volatile("" ::: "memory"); // ensure g_fetch_result writes are visible before state change
     g_fetch_state = ok ? FETCH_DONE_OK : FETCH_DONE_FAIL;
     g_fetch_task  = nullptr;
     vTaskDelete(nullptr);
@@ -128,7 +129,7 @@ static void do_fetch() {
     display_grid_stop_animations();
     g_fetch_state = FETCH_RUNNING;
     memset(&g_fetch_result, 0, sizeof(g_fetch_result));
-    xTaskCreate(fetch_task, "gh_fetch", 8192, nullptr, 1, &g_fetch_task);
+    xTaskCreate(fetch_task, "gh_fetch", 12288, nullptr, 1, &g_fetch_task);
 }
 
 // Called every loop iteration — checks if the fetch task finished or timed out.
@@ -137,8 +138,11 @@ static void fetch_tick() {
     if (g_fetch_state == FETCH_IDLE) return;
 
     if (g_fetch_state == FETCH_RUNNING) {
-        // Record when we started (first tick after RUNNING is set)
-        if (g_fetch_started_ms == 0) g_fetch_started_ms = millis();
+        // Record when we started (first tick after RUNNING is set); avoid 0 sentinel
+        if (g_fetch_started_ms == 0) {
+            uint32_t t = millis();
+            g_fetch_started_ms = t ? t : 1;
+        }
 
         // Hard timeout: kill the task if it's been stuck too long
         if (millis() - g_fetch_started_ms >= FETCH_TIMEOUT_MS) {
@@ -188,11 +192,17 @@ static void wifi_connect_splash() {
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, pass);
+    uint32_t wifi_start_ms = millis();
     while (WiFi.status() != WL_CONNECTED) {
         lv_timer_handler();
         delay(10);
+        if (millis() - wifi_start_ms >= 20000) {
+            Serial.println("[WiFi] Connect timeout — continuing without WiFi");
+            break;
+        }
     }
-    Serial.printf("[WiFi] Connected, IP: %s\n", WiFi.localIP().toString().c_str());
+    if (WiFi.status() == WL_CONNECTED)
+        Serial.printf("[WiFi] Connected, IP: %s\n", WiFi.localIP().toString().c_str());
 
     lv_obj_del(spinner);
     lv_obj_del(lbl);

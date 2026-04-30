@@ -4,6 +4,7 @@
 
 static lv_obj_t *s_screen      = nullptr;
 static lv_obj_t *s_streak_val  = nullptr;
+static lv_obj_t *s_streak_label = nullptr; // sub-label for month commits card; updated on data
 static lv_obj_t *s_total_val   = nullptr;
 static lv_obj_t *s_busiest_val = nullptr;
 static lv_obj_t *s_age_label   = nullptr;
@@ -40,7 +41,7 @@ lv_obj_t *display_stats_build(const char *username) {
         lv_color_t color;
     };
     CardDef cards[3] = {
-        { &s_streak_val,  "day\nstreak",    lv_color_hex(0x39d353) },
+        { &s_streak_val,  "---\ncommits",   lv_color_hex(0x39d353) },
         { &s_total_val,   "Contrib.",      lv_color_hex(0x58a6ff) },
         { &s_busiest_val, "busiest\nday",   lv_color_hex(0xd29922) },
     };
@@ -63,6 +64,7 @@ lv_obj_t *display_stats_build(const char *username) {
         lv_obj_set_width(sub, card_w);
         lv_label_set_text(sub, cards[i].label);
         lv_obj_align_to(sub, *cards[i].val_ptr, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+        if (i == 0) s_streak_label = sub;
     }
 
     // Age label centered at the bottom
@@ -79,7 +81,18 @@ lv_obj_t *display_stats_build(const char *username) {
 
 void display_stats_update(const GithubData &data) {
     if (!s_screen || !s_streak_val || !s_total_val || !s_busiest_val) return;
-    lv_label_set_text_fmt(s_streak_val,  "%d", (int)data.current_streak);
+
+    lv_label_set_text_fmt(s_streak_val, "%d", (int)data.current_month_commits);
+
+    if (s_streak_label && data.current_month >= 1 && data.current_month <= 12) {
+        static const char *MONTH_ABBRS[12] = {
+            "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"
+        };
+        lv_label_set_text_fmt(s_streak_label, "%s\ncommits",
+                              MONTH_ABBRS[data.current_month - 1]);
+    }
+
     lv_label_set_text_fmt(s_total_val,   "%d", (int)data.total_contributions);
     if (data.busiest_day_day > 0 && data.busiest_day_month > 0)
         lv_label_set_text_fmt(s_busiest_val, "%02u/%02u",

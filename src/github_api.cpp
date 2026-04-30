@@ -76,7 +76,6 @@ static void compute_streak_and_busiest(GithubData &data) {
     data.busiest_day_count = 0;
     data.busiest_day_day = 0;
     data.busiest_day_month = 0;
-    data.current_streak = 0;
 
     if (data.anchor_week_start_days == 0 || data.latest_data_day_days == 0) return;
 
@@ -97,25 +96,6 @@ static void compute_streak_and_busiest(GithubData &data) {
             data.busiest_day_month = (uint8_t)(tm_value.tm_mon + 1);
         }
     }
-
-    int32_t delta_days = data.latest_data_day_days - data.anchor_week_start_days;
-    if (delta_days < 0) return;
-
-    int current_week = (GRID_WEEKS - 1) - (int)(delta_days / 7);
-    int current_day = (int)(delta_days % 7);
-    if (current_week < 0 || current_week >= GRID_WEEKS) return;
-
-    bool in_streak = true;
-    for (int w = current_week; w >= 0 && in_streak; w--) {
-        int start_day = (w == current_week) ? current_day : (GRID_DAYS - 1);
-        for (int d = start_day; d >= 0; d--) {
-            uint16_t c = data.days[w][d].count;
-            if (in_streak) {
-                if (c > 0) data.current_streak++;
-                else       in_streak = false;
-            }
-        }
-    }
 }
 
 bool github_fetch(const char *username, const char *token, GithubData &data) {
@@ -125,7 +105,8 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     data.busiest_day_count = 0;
     data.busiest_day_day = 0;
     data.busiest_day_month = 0;
-    data.current_streak = 0;
+    data.current_month_commits = 0;
+    data.current_month = 0;
     data.anchor_week_start_days = 0;
     data.latest_data_day_days = 0;
     memset(data.days, 0, sizeof(data.days));
@@ -174,13 +155,18 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     String body = http.getString();
     http.end();
 
+    if (body.length() > 131072) {
+        Serial.printf("[GitHub] Response too large (%d bytes), aborting\n", body.length());
+        return false;
+    }
+
     Serial.printf("[GitHub] Response length: %d\n", body.length());
 
     // Parse totalContributions
     data.total_contributions = parse_uint16_field(body, "totalContributions", 0);
 
-    // Parse weeks/days
-    ParsedContributionDay parsed_days[GRID_WEEKS * GRID_DAYS];
+    // Parse weeks/days — static: safe because do_fetch() ensures only one task runs at a time
+    static ParsedContributionDay parsed_days[GRID_WEEKS * GRID_DAYS];
     int parsed_day_count = 0;
     int parsed_week_count = 0;
     int32_t latest_day = INT32_MIN;
@@ -254,10 +240,22 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
         }
     }
 
+    // Compute current month and sum its commits from parsed data (has date info)
+    if (latest_day != INT32_MIN) {
+        time_t secs = (time_t)latest_day * 86400;
+        struct tm tm_now;
+        gmtime_r(&secs, &tm_now);
+        data.current_month = (uint8_t)(tm_now.tm_mon + 1);
+        for (int i = 0; i < parsed_day_count; i++) {
+            if (parsed_days[i].has_date && parsed_days[i].month == data.current_month)
+                data.current_month_commits += parsed_days[i].count;
+        }
+    }
+
     compute_streak_and_busiest(data);
     data.valid = true;
-    Serial.printf("[GitHub] OK - %d weeks, %d contributions, streak %d, busiest %d\n",
+    Serial.printf("[GitHub] OK - %d weeks, %d contributions, month(%d) commits %d, busiest %d\n",
                   data.week_count, data.total_contributions,
-                  data.current_streak, data.busiest_day_count);
+                  data.current_month, data.current_month_commits, data.busiest_day_count);
     return true;
 }
