@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <esp_heap_caps.h>
 
 #define GRID_WEEKS 53
 #define GRID_DAYS  7
@@ -12,6 +13,14 @@ static const char *GRAPHQL_QUERY =
     "query($login:String!){user(login:$login){contributionsCollection{"
     "contributionCalendar{totalContributions weeks{contributionDays{"
     "contributionCount date}}}}}}";
+
+static void log_github_heap(const char *tag) {
+    Serial.printf("[GitHub] %s heap free=%u largest=%u min=%u\n",
+                  tag,
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                  (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+}
 
 // ── Contribution level ────────────────────────────────────────────────────────
 
@@ -247,6 +256,12 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
         return false;
     }
 
+    wl_status_t wifi_st = WiFi.status();
+    Serial.printf("[GitHub] Fetch start user=%s wifi=%d rssi=%d\n",
+                  username_buf, (int)wifi_st,
+                  (wifi_st == WL_CONNECTED) ? WiFi.RSSI() : 0);
+    log_github_heap("Before TLS");
+
     WiFiClientSecure client;
     client.setInsecure();
     client.setTimeout(12);
@@ -254,7 +269,11 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     HTTPClient http;
     http.setTimeout(10000);
     http.setConnectTimeout(12000);
-    if (!http.begin(client, GRAPHQL_URL)) return false;
+    if (!http.begin(client, GRAPHQL_URL)) {
+        Serial.println("[GitHub] http.begin failed");
+        log_github_heap("http.begin failed");
+        return false;
+    }
 
     const char *header_keys[] = {"Date"};
     http.collectHeaders(header_keys, 1);
@@ -274,7 +293,9 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     int code = http.POST(query_buf);
 
     if (code != 200) {
-        Serial.printf("[GitHub] HTTP %d\n", code);
+        Serial.printf("[GitHub] HTTP %d (%s) wifi=%d\n",
+                      code, http.errorToString(code).c_str(), (int)WiFi.status());
+        log_github_heap("HTTP failure");
         String error_body = http.getString();
         if (error_body.length() > 0)
             Serial.printf("[GitHub] Error body: %s\n", error_body.c_str());
@@ -291,6 +312,7 @@ bool github_fetch(const char *username, const char *token, GithubData &data) {
     BufStream buf;
     http.writeToStream(&buf);
     http.end();
+    log_github_heap("After HTTP body read");
 
     if (buf._overflow) {
         Serial.printf("[GitHub] Response overflow (>%d bytes)\n", BODY_BUF_SIZE);

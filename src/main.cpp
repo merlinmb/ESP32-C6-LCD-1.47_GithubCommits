@@ -3,6 +3,7 @@
 
 #include <WiFi.h>
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <lvgl.h>
 #include "PINS_ESP32-C6-LCD-1_47.h"
 #include "secrets.h"
@@ -85,9 +86,13 @@ static void screen_switch_cb(lv_timer_t *t) {
 
 // ── Async data refresh via FreeRTOS task ──────────────────────────────────────
 
-static const uint32_t FETCH_TIMEOUT_MS  = 35000; // abort flag set after this long
+// Timeout for the whole async fetch task (all retry attempts combined).
+// Keep this comfortably above one slow HTTPS attempt + retry backoff.
+static const uint32_t FETCH_TIMEOUT_MS  = 120000;
 static const int      FETCH_MAX_RETRIES = 3;
 static const uint32_t FETCH_RETRY_MS    = 5000;
+// Keep this task stack conservative because TLS + HTTPClient call depth is high.
+static const uint32_t FETCH_TASK_STACK_BYTES = 12288;
 
 // State shared between main loop and fetch task.
 // g_fetch_abort is written by the main loop and read by the task; volatile is
@@ -98,11 +103,23 @@ static volatile bool       g_fetch_abort = false; // ask task to stop early
 static GithubData          g_fetch_result;
 static TaskHandle_t        g_fetch_task  = nullptr;
 
+static void log_fetch_heap(const char *tag) {
+    Serial.printf("[Fetch] %s heap free=%u largest=%u min=%u\n",
+                  tag,
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                  (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+}
+
 static void fetch_task(void *) {
     bool ok = false;
     for (int attempt = 1; attempt <= FETCH_MAX_RETRIES && !g_fetch_abort; attempt++) {
-        Serial.printf("[Fetch] Attempt %d/%d\n", attempt, FETCH_MAX_RETRIES);
+        Serial.printf("[Fetch] Attempt %d/%d (stack-hwm=%u words)\n",
+                      attempt, FETCH_MAX_RETRIES,
+                      (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+        log_fetch_heap("Before github_fetch");
         ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_fetch_result);
+        log_fetch_heap("After github_fetch");
         if (ok) break;
         if (attempt < FETCH_MAX_RETRIES && !g_fetch_abort) {
             Serial.printf("[Fetch] Failed, retrying in %u ms...\n", FETCH_RETRY_MS);
@@ -142,20 +159,32 @@ static void do_fetch() {
     g_fetch_abort  = false;
     g_fetch_state  = FETCH_RUNNING;
     memset(&g_fetch_result, 0, sizeof(g_fetch_result));
-    xTaskCreate(fetch_task, "gh_fetch", 12288, nullptr, 1, &g_fetch_task);
+    BaseType_t rc = xTaskCreate(fetch_task, "gh_fetch", FETCH_TASK_STACK_BYTES,
+                                nullptr, 1, &g_fetch_task);
+    if (rc != pdPASS) {
+        Serial.println("[Fetch] Failed to create fetch task");
+        log_fetch_heap("Task create failed");
+        g_fetch_task = nullptr;
+        g_fetch_state = FETCH_DONE_FAIL;
+    }
 }
 
 // Called every loop iteration — checks if the fetch task finished or timed out.
 static uint32_t g_fetch_started_ms = 0;
+static bool     g_fetch_started    = false;
 static void fetch_tick() {
     if (g_fetch_state == FETCH_IDLE) return;
 
     if (g_fetch_state == FETCH_RUNNING) {
-        if (g_fetch_started_ms == 0)
-            g_fetch_started_ms = millis() | 1u; // |1 avoids the 0 sentinel without a branch
+        if (!g_fetch_started) {
+            g_fetch_started_ms = millis();
+            g_fetch_started = true;
+        }
 
         if (millis() - g_fetch_started_ms >= FETCH_TIMEOUT_MS) {
-            Serial.println("[Fetch] Timeout — requesting abort");
+            Serial.printf("[Fetch] Timeout after %u ms — requesting abort\n",
+                          (unsigned)(millis() - g_fetch_started_ms));
+            log_fetch_heap("On timeout");
             g_fetch_abort = true;
             // Give the task up to 3 s to see the flag and exit cleanly.
             // If it still hasn't stopped, force-delete as a last resort.
@@ -169,12 +198,14 @@ static void fetch_tick() {
                 g_fetch_state = FETCH_DONE_FAIL;
             }
             g_fetch_started_ms = 0;
+            g_fetch_started = false;
         }
         return;
     }
 
     // Task finished normally
     g_fetch_started_ms = 0;
+    g_fetch_started = false;
     bool ok = (g_fetch_state == FETCH_DONE_OK);
     g_fetch_state = FETCH_IDLE;
     apply_fetch_result(ok);
