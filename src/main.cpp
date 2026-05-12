@@ -85,29 +85,35 @@ static void screen_switch_cb(lv_timer_t *t) {
 
 // ── Async data refresh via FreeRTOS task ──────────────────────────────────────
 
-static const uint32_t FETCH_TIMEOUT_MS  = 30000; // hard kill if task hangs
+static const uint32_t FETCH_TIMEOUT_MS  = 35000; // abort flag set after this long
 static const int      FETCH_MAX_RETRIES = 3;
 static const uint32_t FETCH_RETRY_MS    = 5000;
 
-// State shared between main loop and fetch task — written only by the task,
-// read only by the main loop (after task exits), so no mutex needed.
+// State shared between main loop and fetch task.
+// g_fetch_abort is written by the main loop and read by the task; volatile is
+// sufficient because it is only ever set true (no torn read/write issue).
 enum FetchState { FETCH_IDLE, FETCH_RUNNING, FETCH_DONE_OK, FETCH_DONE_FAIL };
 static volatile FetchState g_fetch_state = FETCH_IDLE;
-static GithubData          g_fetch_result; // scratch buffer written by task
-static TaskHandle_t        g_fetch_task   = nullptr;
+static volatile bool       g_fetch_abort = false; // ask task to stop early
+static GithubData          g_fetch_result;
+static TaskHandle_t        g_fetch_task  = nullptr;
 
 static void fetch_task(void *) {
     bool ok = false;
-    for (int attempt = 1; attempt <= FETCH_MAX_RETRIES; attempt++) {
+    for (int attempt = 1; attempt <= FETCH_MAX_RETRIES && !g_fetch_abort; attempt++) {
         Serial.printf("[Fetch] Attempt %d/%d\n", attempt, FETCH_MAX_RETRIES);
         ok = github_fetch(g_cfg.github_username, g_cfg.github_token, g_fetch_result);
         if (ok) break;
-        if (attempt < FETCH_MAX_RETRIES) {
+        if (attempt < FETCH_MAX_RETRIES && !g_fetch_abort) {
             Serial.printf("[Fetch] Failed, retrying in %u ms...\n", FETCH_RETRY_MS);
-            vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_MS));
+            // Sleep in small increments so we notice the abort flag promptly.
+            for (uint32_t slept = 0; slept < FETCH_RETRY_MS && !g_fetch_abort; slept += 100)
+                vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
-    __asm__ volatile("" ::: "memory"); // ensure g_fetch_result writes are visible before state change
+    __asm__ volatile("" ::: "memory");
+    // Preserve a valid result even if the main loop requested an abort while
+    // the HTTP request was already completing.
     g_fetch_state = ok ? FETCH_DONE_OK : FETCH_DONE_FAIL;
     g_fetch_task  = nullptr;
     vTaskDelete(nullptr);
@@ -133,7 +139,8 @@ static void apply_fetch_result(bool ok) {
 static void do_fetch() {
     if (g_fetch_state == FETCH_RUNNING) return;
     display_grid_stop_animations();
-    g_fetch_state = FETCH_RUNNING;
+    g_fetch_abort  = false;
+    g_fetch_state  = FETCH_RUNNING;
     memset(&g_fetch_result, 0, sizeof(g_fetch_result));
     xTaskCreate(fetch_task, "gh_fetch", 12288, nullptr, 1, &g_fetch_task);
 }
@@ -144,23 +151,29 @@ static void fetch_tick() {
     if (g_fetch_state == FETCH_IDLE) return;
 
     if (g_fetch_state == FETCH_RUNNING) {
-        // Record when we started (first tick after RUNNING is set); avoid 0 sentinel
-        if (g_fetch_started_ms == 0) {
-            uint32_t t = millis();
-            g_fetch_started_ms = t ? t : 1;
-        }
+        if (g_fetch_started_ms == 0)
+            g_fetch_started_ms = millis() | 1u; // |1 avoids the 0 sentinel without a branch
 
-        // Hard timeout: kill the task if it's been stuck too long
         if (millis() - g_fetch_started_ms >= FETCH_TIMEOUT_MS) {
-            Serial.println("[Fetch] Timeout — killing stuck task");
-            if (g_fetch_task) { vTaskDelete(g_fetch_task); g_fetch_task = nullptr; }
-            g_fetch_state     = FETCH_DONE_FAIL;
+            Serial.println("[Fetch] Timeout — requesting abort");
+            g_fetch_abort = true;
+            // Give the task up to 3 s to see the flag and exit cleanly.
+            // If it still hasn't stopped, force-delete as a last resort.
+            uint32_t wait_start = millis();
+            while (g_fetch_task && (millis() - wait_start < 3000))
+                delay(50);
+            if (g_fetch_task) {
+                Serial.println("[Fetch] Force-killing stuck task");
+                vTaskDelete(g_fetch_task);
+                g_fetch_task = nullptr;
+                g_fetch_state = FETCH_DONE_FAIL;
+            }
             g_fetch_started_ms = 0;
         }
         return;
     }
 
-    // Task finished
+    // Task finished normally
     g_fetch_started_ms = 0;
     bool ok = (g_fetch_state == FETCH_DONE_OK);
     g_fetch_state = FETCH_IDLE;
@@ -349,6 +362,9 @@ static void wifi_watchdog_tick() {
         return;
     }
     if (now - g_wifi_lost_ms >= WIFI_RECONNECT_MS) {
+        // Don't tear down the radio while a fetch task is mid-TLS handshake —
+        // that would leave the socket in an unrecoverable state.
+        if (g_fetch_state == FETCH_RUNNING) return;
         Serial.println("[WiFi] Reconnecting...");
         WiFi.reconnect();
         g_wifi_lost_ms = now; // reset timer so we don't spam reconnect

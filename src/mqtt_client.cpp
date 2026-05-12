@@ -9,8 +9,9 @@
 
 static WiFiClient   s_wifi_client;
 static PubSubClient s_mqtt(s_wifi_client);
-static Config      *s_cfg     = nullptr;
-static bool         s_enabled = false;
+static Config      *s_cfg          = nullptr;
+static bool         s_enabled      = false;
+static bool         s_save_pending = false; // set by callback, acted on in tick()
 
 static const uint32_t RECONNECT_INTERVAL_MS = 5000;
 static uint32_t s_last_reconnect_ms = 0;
@@ -57,17 +58,17 @@ static void on_message(const char *topic, byte *payload, unsigned int len) {
         s_cfg->rgb_brightness = pct;
         set_screen_brightness_pct(pct);
         rgb_led_set_brightness_pct(pct);
-        config_save(*s_cfg);
+        s_save_pending = true; // defer NVS write out of the callback
     } else if (strcmp(topic, s_cfg->mqtt_lcd_topic) == 0) {
         Serial.printf("[MQTT] LCD brightness -> %d%%\n", pct);
         s_cfg->brightness = pct;
         set_screen_brightness_pct(pct);
-        config_save(*s_cfg);
+        s_save_pending = true;
     } else if (strcmp(topic, s_cfg->mqtt_led_brightness_topic) == 0) {
         Serial.printf("[MQTT] LED brightness -> %d%%\n", pct);
         s_cfg->rgb_brightness = pct;
         rgb_led_set_brightness_pct(pct);
-        config_save(*s_cfg);
+        s_save_pending = true;
     }
 }
 
@@ -76,6 +77,8 @@ static void on_message(const char *topic, byte *payload, unsigned int len) {
 static bool try_connect() {
     Serial.printf("[MQTT] Connecting to %s:%u ...\n",
                   s_cfg->mqtt_broker, s_cfg->mqtt_port);
+    // Cap the blocking TCP connect to 3 s so loop() is not starved.
+    s_wifi_client.setTimeout(3000);
     if (!s_mqtt.connect("GithubMonitor")) {
         Serial.printf("[MQTT] Failed, state=%d\n", s_mqtt.state());
         return false;
@@ -121,6 +124,13 @@ void mqtt_client_reinit() {
 
 void mqtt_client_tick() {
     if (!s_enabled) return;
+
+    // Flush any config save requested by the message callback.
+    if (s_save_pending) {
+        s_save_pending = false;
+        config_save(*s_cfg);
+    }
+
     if (WiFi.status() != WL_CONNECTED) return;
     if (s_mqtt.connected()) {
         s_mqtt.loop();
